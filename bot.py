@@ -46,12 +46,14 @@ API_ID = int(os.getenv("API_ID", "2040"))
 API_HASH = os.getenv("API_HASH", "b18441a1ff607e10a989891a5462e627")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "1429926943"))
 
-DOWNLOAD_DIR = Path("downloads")
+# Resolve project root dynamically so it works anywhere without root paths
+BASE_DIR = Path(__file__).resolve().parent
+DOWNLOAD_DIR = BASE_DIR / os.getenv("DOWNLOAD_DIR", "downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-DB_PATH = Path("users.db")
-COOKIES_FILE = Path("cookies.txt")
-NODE_BIN = Path("/root/.hermes/node/bin/node")
+DB_PATH = BASE_DIR / "users.db"
+COOKIES_FILE = BASE_DIR / "cookies.txt"
+NODE_BIN = Path(os.getenv("NODE_BIN", "node"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,7 +66,7 @@ app = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    workdir="/root/downloader_bot"
+    workdir=str(BASE_DIR)
 )
 
 MEDIA_CACHE = {}
