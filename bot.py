@@ -201,11 +201,8 @@ def get_setting(key: str, default: str = "") -> str:
         return row[0] if row and row[0] is not None else default
 
 def set_setting(key: str, value: str):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            INSERT INTO settings (key, value) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        """, (key, value))
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
 
 def get_all_users() -> list:
@@ -332,11 +329,8 @@ def get_user_lang(user_id: int) -> str:
         return row[0] if row and row[0] in ["fa", "en"] else "en"
 
 def set_user_lang(user_id: int, lang: str):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            INSERT INTO users (user_id, lang) VALUES (?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET lang = excluded.lang
-        """, (user_id, lang))
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO users (user_id, lang) VALUES (?, ?)", (user_id, lang))
         conn.commit()
 
 MESSAGES = {
