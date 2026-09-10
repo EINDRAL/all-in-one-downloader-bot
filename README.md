@@ -49,7 +49,7 @@ A high-performance, asynchronous Telegram media and music downloader bot powered
 ### روش ۱: نصب تک‌کلیکه با اسکریپت خودکار (توصیه‌شده)
 
 ```bash
-git clone https://github.com/darkness-79453/all-in-one-downloader-bot.git
+git clone https://github.com/EINDRAL/all-in-one-downloader-bot.git
 cd all-in-one-downloader-bot
 bash install.sh
 ```
@@ -61,7 +61,7 @@ bash install.sh
 
 ۱. مخزن را کلون کنید:
 ```bash
-git clone https://github.com/darkness79453/all-in-one-downloader-bot.git
+git clone https://github.com/EINDRAL/all-in-one-downloader-bot.git
 cd all-in-one-downloader-bot
 ```
 
@@ -102,7 +102,7 @@ python bot.py
 
 - **Author:** Mohammad Yousef Morovajnia
 - **Telegram:** [@EINDRAL](https://t.me/EINDRAL)
-- **GitHub:** [@darkness-79453](https://github.com/darkness-79453)
+- **GitHub:** [@EINDRAL](https://github.com/EINDRAL)
 
 ---
 
