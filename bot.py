@@ -61,37 +61,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("DownloaderBot")
 
-# Optional SOCKS5 / HTTP proxy (e.g. from local xray / v2ray / sing-box client)
-PROXY_CONFIG = None
-PROXY_URL = os.getenv("PROXY_URL")  # e.g. "socks5://127.0.0.1:10808"
-if PROXY_URL:
-    try:
-        from urllib.parse import urlparse
-        p = urlparse(PROXY_URL)
-        PROXY_CONFIG = {
-            "scheme": p.scheme or "socks5",
-            "hostname": p.hostname or "127.0.0.1",
-            "port": p.port or 10808
-        }
-        if p.username:
-            PROXY_CONFIG["username"] = p.username
-        if p.password:
-            PROXY_CONFIG["password"] = p.password
-        logger.info(f"Using proxy: {PROXY_CONFIG['scheme']}://{PROXY_CONFIG['hostname']}:{PROXY_CONFIG['port']}")
-    except Exception as pe:
-        logger.error(f"Error parsing PROXY_URL: {pe}")
-
-client_kwargs = {
-    "name": "downloader_bot_session",
-    "api_id": API_ID,
-    "api_hash": API_HASH,
-    "bot_token": BOT_TOKEN,
-    "workdir": str(BASE_DIR)
-}
-if PROXY_CONFIG:
-    client_kwargs["proxy"] = PROXY_CONFIG
-
-app = Client(**client_kwargs)
+app = Client(
+    "downloader_bot_session",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+    workdir=str(BASE_DIR)
+)
 
 MEDIA_CACHE = {}
 PENDING_ADMIN_ACTION = {}
