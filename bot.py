@@ -61,13 +61,40 @@ logging.basicConfig(
 )
 logger = logging.getLogger("DownloaderBot")
 
-app = Client(
-    "downloader_bot_session",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    workdir=str(BASE_DIR)
-)
+# Optional Proxy Configuration (SOCKS5, SOCKS4, HTTP or MTProto)
+PROXY_CONFIG = None
+PROXY_URL = os.getenv("PROXY_URL", "").strip()
+
+if PROXY_URL:
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(PROXY_URL)
+        scheme = (p.scheme or "socks5").lower()
+        if scheme in ["socks5", "socks4", "http"]:
+            PROXY_CONFIG = {
+                "scheme": scheme,
+                "hostname": p.hostname or "127.0.0.1",
+                "port": p.port or (10808 if scheme.startswith("socks") else 8080)
+            }
+            if p.username:
+                PROXY_CONFIG["username"] = p.username
+            if p.password:
+                PROXY_CONFIG["password"] = p.password
+            logger.info(f"Using proxy: {PROXY_CONFIG['scheme']}://{PROXY_CONFIG['hostname']}:{PROXY_CONFIG['port']}")
+    except Exception as pe:
+        logger.error(f"Error parsing PROXY_URL: {pe}")
+
+client_kwargs = {
+    "name": "downloader_bot_session",
+    "api_id": API_ID,
+    "api_hash": API_HASH,
+    "bot_token": BOT_TOKEN,
+    "workdir": str(BASE_DIR)
+}
+if PROXY_CONFIG:
+    client_kwargs["proxy"] = PROXY_CONFIG
+
+app = Client(**client_kwargs)
 
 MEDIA_CACHE = {}
 PENDING_ADMIN_ACTION = {}

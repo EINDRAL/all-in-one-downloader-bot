@@ -63,12 +63,16 @@ if [ ! -f ".env" ]; then
     echo ""
     read -rp "👉 Enter your Telegram Bot Token (from @BotFather): " USER_BOT_TOKEN
     read -rp "👉 Enter your Numeric Telegram Admin ID (e.g. 1429926943): " USER_ADMIN_ID
+    read -rp "👉 (Optional) Enter Proxy URL [e.g. socks5://127.0.0.1:10808] (Leave blank and press Enter to skip): " USER_PROXY_URL
 
     cat <<EOF > .env
 BOT_TOKEN=${USER_BOT_TOKEN}
 ADMIN_ID=${USER_ADMIN_ID}
 DOWNLOAD_DIR=downloads
 EOF
+    if [ -n "$USER_PROXY_URL" ]; then
+        echo "PROXY_URL=${USER_PROXY_URL}" >> .env
+    fi
     echo -e "${GREEN}✓ .env created successfully!${NC}"
 else
     echo -e "${GREEN}✓ .env configuration found.${NC}"
