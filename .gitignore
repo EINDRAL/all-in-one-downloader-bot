@@ -1,0 +1,56 @@
+# Environments and Secrets
+.env
+*.env
+cookies.txt
+
+# Python cache & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Telegram Sessions & Local Databases
+*.session
+*.session-journal
+users.db
+*.db
+*.sqlite3
+
+# Logs & Temporary Media
+*.log
+*.mp4
+*.mp3
+*.m4a
+*.webm
+*.part
+*.ytdl
+*.jpg
+*.jpeg
+*.png
+*.webp
+temp/
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
