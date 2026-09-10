@@ -201,7 +201,7 @@ def get_setting(key: str, default: str = "") -> str:
         return row[0] if row and row[0] is not None else default
 
 def set_setting(key: str, value: str):
-    with get_db() as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
 
@@ -329,7 +329,7 @@ def get_user_lang(user_id: int) -> str:
         return row[0] if row and row[0] in ["fa", "en"] else "en"
 
 def set_user_lang(user_id: int, lang: str):
-    with get_db() as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         conn.execute("INSERT OR REPLACE INTO users (user_id, lang) VALUES (?, ?)", (user_id, lang))
         conn.commit()
 
