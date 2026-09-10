@@ -52,13 +52,8 @@ VENV_PY="$SCRIPT_DIR/venv/bin/python"
 
 # 3. Install Dependencies
 echo -e "${BLUE}[3/5] Installing dependencies from requirements.txt...${NC}"
-if [ -f "$SCRIPT_DIR/venv/bin/pip" ]; then
-    "$SCRIPT_DIR/venv/bin/pip" install --upgrade pip >/dev/null 2>&1 || true
-    "$SCRIPT_DIR/venv/bin/pip" install -r requirements.txt
-else
-    "$VENV_PY" -m pip install --upgrade pip >/dev/null 2>&1 || true
-    "$VENV_PY" -m pip install -r requirements.txt
-fi
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+"$VENV_PY" -m pip install -r requirements.txt
 echo -e "${GREEN}✓ All dependencies installed successfully.${NC}"
 
 # 4. Interactive Configuration (.env)
