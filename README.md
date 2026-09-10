@@ -98,7 +98,7 @@ python bot.py
 
 ---
 
-## 👨‍💻 Developer & Credits / سازندگان و همکاران
+## 👨‍💻 Developer & Credits
 
 - **Developer & Maintainer:** Mohammad Yousef Morovajnia ([@EINDRAL](https://t.me/EINDRAL) • [GitHub](https://github.com/EINDRAL))
 - **Special Thanks & Contributor:** [@Adam1384a](https://t.me/Adam1384a)
