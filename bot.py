@@ -108,6 +108,10 @@ def get_ydl_common_opts() -> dict:
         # Larger TCP window for faster resume on unstable links
         'http_chunk_size': 1024 * 1024,
     }
+    # Optional: route ONLY media downloads through a proxy (e.g. local Xray tunnel on restricted hosts)
+    ytdlp_proxy = os.getenv("YTDLP_PROXY", "").strip()
+    if ytdlp_proxy:
+        opts['proxy'] = ytdlp_proxy
     if COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
     js_rt = get_best_js_runtime()
