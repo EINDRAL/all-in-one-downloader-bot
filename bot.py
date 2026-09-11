@@ -4,6 +4,7 @@ import sys
 import time
 import json
 import html
+import shutil
 import sqlite3
 import asyncio
 import logging
@@ -53,6 +54,59 @@ DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 DB_PATH = BASE_DIR / "users.db"
 COOKIES_FILE = BASE_DIR / "cookies.txt"
+def get_best_js_runtime() -> dict:
+    """Auto-detects the newest available JavaScript runtime (Deno or Node.js) on any system.
+    Prioritizes: 1) Custom NODE_BIN from .env, 2) Deno, 3) Newest Node.js found system-wide."""
+    custom_node = os.getenv("NODE_BIN")
+    if custom_node and shutil.which(custom_node):
+        return {'node': {'path': shutil.which(custom_node)}}
+
+    deno_path = shutil.which('deno')
+    if deno_path:
+        return {'deno': {'path': deno_path}}
+
+    candidates = [
+        shutil.which('node'),
+        shutil.which('nodejs'),
+        '/opt/rh/rh-nodejs24/root/usr/bin/node',
+        '/opt/rh/rh-nodejs22/root/usr/bin/node',
+        '/opt/rh/rh-nodejs20/root/usr/bin/node',
+        '/opt/rh/rh-nodejs18/root/usr/bin/node',
+        '/opt/rh/rh-nodejs16/root/usr/bin/node',
+        '/usr/local/bin/node',
+        '/usr/bin/node'
+    ]
+    best_node = None
+    best_major = 0
+
+    for cand in candidates:
+        if not cand or not os.path.exists(cand):
+            continue
+        try:
+            res = subprocess.run([cand, '-v'], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0:
+                m = re.search(r'v?(\d+)', res.stdout.strip())
+                major = int(m.group(1)) if m else 0
+                if major > best_major:
+                    best_major = major
+                    best_node = cand
+        except Exception:
+            continue
+
+    if best_node:
+        return {'node': {'path': best_node}}
+    return {}
+
+def get_ydl_common_opts() -> dict:
+    """Returns common yt-dlp options: cookies file & best detected JS runtime."""
+    opts = {}
+    if COOKIES_FILE.exists():
+        opts['cookiefile'] = str(COOKIES_FILE)
+    js_rt = get_best_js_runtime()
+    if js_rt:
+        opts['js_runtimes'] = js_rt
+    return opts
+
 NODE_BIN = Path(os.getenv("NODE_BIN", "node"))
 
 logging.basicConfig(
@@ -1256,10 +1310,7 @@ async def _extract_ytdlp(url: str):
         'extract_flat': False,
         'noplaylist': True,
     }
-    if COOKIES_FILE.exists():
-        ydl_opts['cookiefile'] = str(COOKIES_FILE)
-    if NODE_BIN.exists():
-        ydl_opts['js_runtimes'] = {'node': {'path': str(NODE_BIN)}}
+    ydl_opts.update(get_ydl_common_opts())
 
     loop = asyncio.get_running_loop()
     def _extract():
@@ -1389,10 +1440,7 @@ async def download_spotify_track(info: dict, progress_callback=None, cancel_toke
         'no_warnings': True,
         'noplaylist': True,
     }
-    if COOKIES_FILE.exists():
-        ydl_opts['cookiefile'] = str(COOKIES_FILE)
-    if NODE_BIN.exists():
-        ydl_opts['js_runtimes'] = {'node': {'path': str(NODE_BIN)}}
+    ydl_opts.update(get_ydl_common_opts())
 
     loop = asyncio.get_running_loop()
     last_update_time = 0
@@ -1563,8 +1611,7 @@ async def _download_media_internal(url: str, quality_req: str, cached_data: dict
 
     if COOKIES_FILE.exists():
         ydl_opts['cookiefile'] = str(COOKIES_FILE)
-    if NODE_BIN.exists():
-        ydl_opts['js_runtimes'] = {'node': {'path': str(NODE_BIN)}}
+    ydl_opts.update(get_ydl_common_opts())
 
     loop = asyncio.get_running_loop()
 
