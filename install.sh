@@ -63,38 +63,12 @@ if [ ! -f ".env" ]; then
     echo ""
     read -rp "👉 Enter your Telegram Bot Token (from @BotFather): " USER_BOT_TOKEN
     read -rp "👉 Enter your Numeric Telegram Admin ID (e.g. 1429926943): " USER_ADMIN_ID
-    read -rp "👉 (Optional) Proxy / VLESS link [e.g. socks5://127.0.0.1:10808 or vless://...] (Leave blank to skip): " USER_PROXY_URL
 
     cat <<EOF > .env
 BOT_TOKEN=${USER_BOT_TOKEN}
 ADMIN_ID=${USER_ADMIN_ID}
 DOWNLOAD_DIR=downloads
 EOF
-
-    if [ -n "$USER_PROXY_URL" ]; then
-        if [[ "$USER_PROXY_URL" =~ ^vless:// ]]; then
-            echo -e "${BLUE}ℹ Setting up local Xray core for VLESS tunnel...${NC}"
-            mkdir -p xray_core && cd xray_core
-            if [ ! -f "xray" ]; then
-                curl -L -s -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v1.8.24/Xray-linux-64.zip || true
-                unzip -o xray.zip >/dev/null 2>&1 || true
-                chmod +x xray 2>/dev/null || true
-            fi
-            cd "$SCRIPT_DIR"
-            if [ -f "xray_core/xray" ]; then
-                python3 v2ray_helper.py "$USER_PROXY_URL" > xray_core/config.json 2>/dev/null || true
-                pkill -f 'xray.*config.json' 2>/dev/null || true
-                nohup ./xray_core/xray run -c xray_core/config.json > xray_core/xray.log 2>&1 &
-                echo "PROXY_URL=socks5://127.0.0.1:10808" >> .env
-                echo -e "${GREEN}✓ Local VLESS tunnel running on socks5://127.0.0.1:10808${NC}"
-            else
-                echo -e "${YELLOW}Warning: Could not download Xray binary. Please provide standard socks5:// proxy.${NC}"
-            fi
-        else
-            echo "PROXY_URL=${USER_PROXY_URL}" >> .env
-            echo -e "${GREEN}✓ Proxy set: ${USER_PROXY_URL}${NC}"
-        fi
-    fi
     echo -e "${GREEN}✓ .env created successfully!${NC}"
 else
     echo -e "${GREEN}✓ .env configuration found.${NC}"
