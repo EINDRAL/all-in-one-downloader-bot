@@ -98,8 +98,16 @@ def get_best_js_runtime() -> dict:
     return {}
 
 def get_ydl_common_opts() -> dict:
-    """Returns common yt-dlp options: cookies file & best detected JS runtime."""
-    opts = {}
+    """Returns common yt-dlp options: cookies file, best detected JS runtime & resilient network settings."""
+    opts = {
+        # Higher tolerance for slow/throttled CDNs (default 20s is too aggressive on shared hosting)
+        'socket_timeout': 45,
+        # More retries with exponential backoff for transient CDN timeouts
+        'retries': 10,
+        'retry_sleep_functions': {'http': lambda n: 3 + min(n * 2, 10)},
+        # Larger TCP window for faster resume on unstable links
+        'http_chunk_size': 1024 * 1024,
+    }
     if COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
     js_rt = get_best_js_runtime()
