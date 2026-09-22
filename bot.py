@@ -127,12 +127,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("DownloaderBot")
 
+USE_IPV6 = os.getenv("USE_IPV6", "true").lower() in ("true", "1", "yes")
+
 client_kwargs = {
     "name": "downloader_bot_session",
     "api_id": API_ID,
     "api_hash": API_HASH,
     "bot_token": BOT_TOKEN,
-    "workdir": str(BASE_DIR)
+    "workdir": str(BASE_DIR),
+    "ipv6": USE_IPV6
 }
 
 app = Client(**client_kwargs)

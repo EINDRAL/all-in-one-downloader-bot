@@ -4,7 +4,7 @@ import time
 import logging
 from pathlib import Path
 
-DOWNLOAD_DIR = Path("/root/downloader_bot/downloads")
+DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", Path(__file__).resolve().parent / "downloads"))
 MAX_AGE_SECONDS = 3600  # 1 hour threshold
 
 logging.basicConfig(
