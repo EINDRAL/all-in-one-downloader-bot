@@ -835,8 +835,9 @@ async def extract_spotify_track(url: str):
     headers = {
         "User-Agent": "TelegramBot (like TwitterBot)"
     }
+    proxy = os.getenv("YTDLP_PROXY", "").strip() or None
     async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+        async with session.get(url, proxy=proxy, timeout=aiohttp.ClientTimeout(total=10)) as r:
             html_text = await r.text()
 
         title_m = re.search(r'property=\"og:title\" content=\"([^\"]+)\"', html_text)
@@ -872,10 +873,11 @@ async def extract_spotify_track(url: str):
 async def extract_spotify_album(url: str):
     headers_bot = {"User-Agent": "TelegramBot (like TwitterBot)"}
     headers_web = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    proxy = os.getenv("YTDLP_PROXY", "").strip() or None
 
     async with aiohttp.ClientSession() as session:
         # 1. Fetch metadata (Title, artist, cover) via bot UA
-        async with session.get(url, headers=headers_bot, timeout=aiohttp.ClientTimeout(total=10)) as r:
+        async with session.get(url, headers=headers_bot, proxy=proxy, timeout=aiohttp.ClientTimeout(total=10)) as r:
             meta_html = await r.text()
 
         title_m = re.search(r'property=\"og:title\" content=\"([^\"]+)\"', meta_html)
@@ -896,7 +898,7 @@ async def extract_spotify_album(url: str):
             year = parts[2] if len(parts) > 2 else ''
 
         # 2. Fetch full track list via web UA
-        async with session.get(url, headers=headers_web, timeout=aiohttp.ClientTimeout(total=10)) as r2:
+        async with session.get(url, headers=headers_web, proxy=proxy, timeout=aiohttp.ClientTimeout(total=10)) as r2:
             page_html = await r2.text()
 
         track_ids = re.findall(r'/track/([a-zA-Z0-9]{22})', page_html)
@@ -1166,9 +1168,10 @@ async def resolve_redirect_url(url: str) -> str:
     # Resolve shortened / redirect links like spotify.link, bit.ly, etc.
     if any(sh in url.lower() for sh in ["spotify.link", "pin.it", "vt.tiktok.com", "vm.tiktok.com", "on.soundcloud.com"]):
         try:
+            proxy = os.getenv("YTDLP_PROXY", "").strip() or None
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
             async with aiohttp.ClientSession(headers=headers) as s:
-                async with s.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                async with s.get(url, proxy=proxy, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=8)) as r:
                     return str(r.url)
         except Exception:
             pass
