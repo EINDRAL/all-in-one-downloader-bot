@@ -4,6 +4,7 @@ import sys
 import time
 import json
 import html
+import urllib.parse
 import shutil
 import sqlite3
 import asyncio
@@ -108,10 +109,6 @@ def get_ydl_common_opts() -> dict:
         # Larger TCP window for faster resume on unstable links
         'http_chunk_size': 1024 * 1024,
     }
-    # Optional: route ONLY media downloads through a proxy (e.g. local Xray tunnel on restricted hosts)
-    ytdlp_proxy = os.getenv("YTDLP_PROXY", "").strip()
-    if ytdlp_proxy:
-        opts['proxy'] = ytdlp_proxy
     if COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
     js_rt = get_best_js_runtime()
@@ -832,102 +829,250 @@ async def extract_pinterest_image(url: str):
         }
 
 async def extract_spotify_track(url: str):
+    m = re.search(r'track/([a-zA-Z0-9]{22})', url)
+    track_id = m.group(1) if m else None
+
+    title = ""
+    artist = ""
+    album = ""
+    year = ""
+    cover_url = None
+    duration = 0
+
+    clean_url = f"https://open.spotify.com/track/{track_id}" if track_id else url
+
     headers = {
-        "User-Agent": "TelegramBot (like TwitterBot)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
     }
-    proxy = os.getenv("YTDLP_PROXY", "").strip() or None
+
     async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.get(url, proxy=proxy, timeout=aiohttp.ClientTimeout(total=10)) as r:
-            html_text = await r.text()
+        # Tier 1: Groover API (reliable, fast, no proxy needed)
+        try:
+            groover_headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Origin": "https://groover.co",
+                "Referer": "https://groover.co/en/lp/free-tools/isrc-finder/",
+                "User-Agent": "Mozilla/5.0"
+            }
+            async with session.post(
+                "https://groover.co/core/distantapi/spotify/getdata/",
+                json={"url": clean_url},
+                headers=groover_headers,
+                timeout=aiohttp.ClientTimeout(total=8)
+            ) as r:
+                if r.status == 200:
+                    d = await r.json()
+                    title = d.get("name") or ""
+                    artist = d.get("artist_name") or ""
+                    if not artist and d.get("artists"):
+                        artist = ", ".join(a.get("name", "") for a in d["artists"] if a.get("name"))
+                    album = d.get("album_name") or ""
+                    if not album and d.get("album"):
+                        album = d["album"].get("name", "")
+                    rel_date = d.get("release_date") or ""
+                    year = rel_date.split("-")[0] if rel_date else ""
+                    cover_url = d.get("thumbnail")
+                    if not cover_url and d.get("images"):
+                        cover_url = d["images"][0].get("url")
+                    duration = int((d.get("duration_ms") or 0) / 1000)
+        except Exception:
+            pass
 
-        title_m = re.search(r'property=\"og:title\" content=\"([^\"]+)\"', html_text)
-        desc_m = re.search(r'property=\"og:description\" content=\"([^\"]+)\"', html_text)
-        img_m = re.search(r'property=\"og:image\" content=\"([^\"]+)\"', html_text)
+        # Tier 2: Tools4Music API
+        if (not title or not artist) and track_id:
+            try:
+                async with session.get(
+                    f"https://tools4music.com/api/spotify/isrc?id={track_id}",
+                    timeout=aiohttp.ClientTimeout(total=8)
+                ) as r:
+                    if r.status == 200:
+                        d = await r.json()
+                        title = title or d.get("name", "")
+                        if not artist:
+                            art_val = d.get("artists")
+                            if isinstance(art_val, list):
+                                artist = ", ".join(art_val)
+                            elif isinstance(art_val, str):
+                                artist = art_val
+                        album = album or d.get("album", "")
+                        cover_url = cover_url or d.get("image")
+            except Exception:
+                pass
 
-        title = html.unescape(title_m.group(1)) if title_m else 'Spotify Track'
-        desc = html.unescape(desc_m.group(1)) if desc_m else ''
-        cover_url = img_m.group(1) if img_m else None
+        # Tier 3: Spotify official oEmbed
+        if not title:
+            try:
+                oe_url = f"https://open.spotify.com/oembed?url={urllib.parse.quote(clean_url)}"
+                async with session.get(oe_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                    if r.status == 200:
+                        d = await r.json()
+                        title = d.get("title") or ""
+                        raw_thumb = d.get("thumbnail_url")
+                        if raw_thumb and not cover_url:
+                            cover_url = re.sub(r'ab67616d[0-9a-f]{8}', 'ab67616d0000b273', raw_thumb)
+            except Exception:
+                pass
 
-        parts = [p.strip() for p in desc.split('·')] if desc else []
-        artist = parts[0] if len(parts) > 0 else 'Unknown Artist'
-        album = parts[1] if len(parts) > 1 else ''
-        year = parts[3] if len(parts) > 3 else (parts[2] if len(parts) > 2 else '')
+        # Tier 4: Direct HTML scrape
+        if not title or not artist:
+            try:
+                bot_ua = {"User-Agent": "TelegramBot (like TwitterBot)"}
+                async with session.get(clean_url, headers=bot_ua, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                    if r.status == 200:
+                        html_text = await r.text()
+                        title_m = re.search(r'property=\"og:title\" content=\"([^\"]+)\"', html_text)
+                        desc_m = re.search(r'property=\"og:description\" content=\"([^\"]+)\"', html_text)
+                        img_m = re.search(r'property=\"og:image\" content=\"([^\"]+)\"', html_text)
 
-        search_query = f"{artist} - {title} audio"
+                        if title_m and not title:
+                            title = html.unescape(title_m.group(1))
+                        if desc_m and not artist:
+                            desc = html.unescape(desc_m.group(1))
+                            parts = [p.strip() for p in desc.split('·')]
+                            artist = parts[0] if parts else ''
+                            if len(parts) > 1 and not album:
+                                album = parts[1]
+                            if len(parts) > 2 and not year:
+                                year = parts[-1]
+                        if img_m and not cover_url:
+                            cover_url = img_m.group(1)
+            except Exception:
+                pass
 
-        return {
-            "source": "spotify_track",
-            "media_type": "audio",
-            "id": str(int(time.time())),
-            "title": title,
-            "artist": artist,
-            "album": album,
-            "year": year,
-            "uploader": artist,
-            "duration": 0,
-            "thumbnail": cover_url,
-            "cover_url": cover_url,
-            "search_query": search_query
-        }
+    title = title or "Spotify Track"
+    artist = artist or "Unknown Artist"
+    search_query = f"{artist} - {title} audio" if artist != "Unknown Artist" else f"{title} audio"
+
+    return {
+        "source": "spotify_track",
+        "media_type": "audio",
+        "id": track_id or str(int(time.time())),
+        "title": title,
+        "artist": artist,
+        "album": album,
+        "year": year,
+        "uploader": artist,
+        "duration": duration,
+        "thumbnail": cover_url,
+        "cover_url": cover_url,
+        "search_query": search_query
+    }
 
 async def extract_spotify_album(url: str):
-    headers_bot = {"User-Agent": "TelegramBot (like TwitterBot)"}
-    headers_web = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    proxy = os.getenv("YTDLP_PROXY", "").strip() or None
+    m = re.search(r'(album|playlist)/([a-zA-Z0-9]{22})', url)
+    coll_type = m.group(1) if m else ('playlist' if 'playlist' in url.lower() else 'album')
+    coll_id = m.group(2) if m else None
 
-    async with aiohttp.ClientSession() as session:
-        # 1. Fetch metadata (Title, artist, cover) via bot UA
-        async with session.get(url, headers=headers_bot, proxy=proxy, timeout=aiohttp.ClientTimeout(total=10)) as r:
-            meta_html = await r.text()
+    clean_url = f"https://open.spotify.com/{coll_type}/{coll_id}" if coll_id else url
+    is_pl = coll_type == "playlist"
 
-        title_m = re.search(r'property=\"og:title\" content=\"([^\"]+)\"', meta_html)
-        desc_m = re.search(r'property=\"og:description\" content=\"([^\"]+)\"', meta_html)
-        img_m = re.search(r'property=\"og:image\" content=\"([^\"]+)\"', meta_html)
+    clean_name = ""
+    artist = ""
+    year = ""
+    cover_url = None
+    ordered_ids = []
 
-        raw_title = html.unescape(title_m.group(1)) if title_m else 'Spotify Collection'
-        clean_name = raw_title.split(" - Album by")[0].split(" | Spotify")[0].strip()
-        cover_url = img_m.group(1) if img_m else None
-        desc = html.unescape(desc_m.group(1)) if desc_m else ''
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+    }
 
-        parts = [p.strip() for p in desc.split('·')] if desc else []
-        artist = parts[0] if len(parts) > 0 else 'Spotify'
-        if "playlist" in desc.lower():
-            artist = parts[1] if len(parts) > 1 else 'Spotify'
-            year = ""
-        else:
-            year = parts[2] if len(parts) > 2 else ''
+    async with aiohttp.ClientSession(headers=headers) as session:
+        # Tier 1: Groover API
+        try:
+            groover_headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Origin": "https://groover.co",
+                "Referer": "https://groover.co/en/lp/free-tools/isrc-finder/",
+                "User-Agent": "Mozilla/5.0"
+            }
+            async with session.post(
+                "https://groover.co/core/distantapi/spotify/getdata/",
+                json={"url": clean_url},
+                headers=groover_headers,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as r:
+                if r.status == 200:
+                    d = await r.json()
+                    clean_name = d.get("name") or ""
+                    if is_pl:
+                        artist = d.get("owner", {}).get("display_name") or "Spotify"
+                    else:
+                        artists_list = d.get("artists", [])
+                        artist = ", ".join(a.get("name", "") for a in artists_list if a.get("name")) or "Spotify"
+                        rel_date = d.get("release_date") or ""
+                        year = rel_date.split("-")[0] if rel_date else ""
 
-        # 2. Fetch full track list via web UA
-        async with session.get(url, headers=headers_web, proxy=proxy, timeout=aiohttp.ClientTimeout(total=10)) as r2:
-            page_html = await r2.text()
+                    images = d.get("images", [])
+                    if images and isinstance(images, list):
+                        cover_url = images[0].get("url")
 
-        track_ids = re.findall(r'/track/([a-zA-Z0-9]{22})', page_html)
-        seen = set()
-        ordered_ids = [t for t in track_ids if not (t in seen or seen.add(t))]
+                    # Parse track IDs
+                    tracks_data = d.get("tracks", {})
+                    raw_items = tracks_data.get("items", []) if isinstance(tracks_data, dict) else (tracks_data if isinstance(tracks_data, list) else [])
+                    seen = set()
+                    for item in raw_items:
+                        t = (item.get("track") or item.get("item") or item) if isinstance(item, dict) else None
+                        tid = t.get("id") if isinstance(t, dict) else None
+                        if tid and tid not in seen:
+                            seen.add(tid)
+                            ordered_ids.append(tid)
+        except Exception:
+            pass
 
+        # Tier 2: Spotify official oEmbed (for title and cover)
+        if not clean_name or not cover_url:
+            try:
+                oe_url = f"https://open.spotify.com/oembed?url={urllib.parse.quote(clean_url)}"
+                async with session.get(oe_url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                    if r.status == 200:
+                        d = await r.json()
+                        clean_name = clean_name or d.get("title", "")
+                        raw_thumb = d.get("thumbnail_url")
+                        if raw_thumb and not cover_url:
+                            cover_url = re.sub(r'ab67616d[0-9a-f]{8}', 'ab67616d0000b273', raw_thumb)
+            except Exception:
+                pass
+
+        # Tier 3: Web HTML scraper fallback (for track IDs if Groover didn't get them)
         if not ordered_ids:
-            # Fallback regex for newer Spotify web client layout
-            track_ids_alt = re.findall(r'open\.spotify\.com(?:/intl-[a-z]{2})?/track/([a-zA-Z0-9]{22})', page_html)
-            ordered_ids = [t for t in track_ids_alt if not (t in seen or seen.add(t))]
+            try:
+                web_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                async with session.get(clean_url, headers=web_headers, timeout=aiohttp.ClientTimeout(total=10)) as r2:
+                    if r2.status == 200:
+                        page_html = await r2.text()
+                        track_ids = re.findall(r'/track/([a-zA-Z0-9]{22})', page_html)
+                        seen = set()
+                        ordered_ids = [t for t in track_ids if not (t in seen or seen.add(t))]
+                        if not ordered_ids:
+                            track_ids_alt = re.findall(r'open\.spotify\.com(?:/intl-[a-z]{2})?/track/([a-zA-Z0-9]{22})', page_html)
+                            ordered_ids = [t for t in track_ids_alt if not (t in seen or seen.add(t))]
+            except Exception:
+                pass
 
-        if not ordered_ids:
-            raise ValueError("No tracks found in Spotify album/playlist")
+    if not ordered_ids:
+        raise ValueError("No tracks found in Spotify album/playlist")
 
-        is_pl = "playlist" in url.lower()
-        return {
-            "source": "spotify_album",
-            "media_type": "album",
-            "is_playlist": is_pl,
-            "id": str(int(time.time())),
-            "title": clean_name,
-            "artist": artist,
-            "year": year,
-            "uploader": artist,
-            "thumbnail": cover_url,
-            "cover_url": cover_url,
-            "track_ids": ordered_ids,
-            "tracks_count": len(ordered_ids)
-        }
+    clean_name = clean_name or ("Spotify Playlist" if is_pl else "Spotify Album")
+    artist = artist or "Spotify"
+
+    return {
+        "source": "spotify_album",
+        "media_type": "album",
+        "is_playlist": is_pl,
+        "id": coll_id or str(int(time.time())),
+        "title": clean_name,
+        "artist": artist,
+        "year": year,
+        "uploader": artist,
+        "thumbnail": cover_url,
+        "cover_url": cover_url,
+        "track_ids": ordered_ids,
+        "tracks_count": len(ordered_ids)
+    }
 
 async def extract_soundcloud_album(url: str):
     # Native fast SoundCloud album/playlist scraper with automatic DRM filter
@@ -1168,10 +1313,9 @@ async def resolve_redirect_url(url: str) -> str:
     # Resolve shortened / redirect links like spotify.link, bit.ly, etc.
     if any(sh in url.lower() for sh in ["spotify.link", "pin.it", "vt.tiktok.com", "vm.tiktok.com", "on.soundcloud.com"]):
         try:
-            proxy = os.getenv("YTDLP_PROXY", "").strip() or None
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
             async with aiohttp.ClientSession(headers=headers) as s:
-                async with s.get(url, proxy=proxy, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=8)) as r:
+                async with s.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=8)) as r:
                     return str(r.url)
         except Exception:
             pass
@@ -1214,36 +1358,71 @@ async def extract_info(url: str):
 
     if is_twitter(url):
         try:
-            return await _extract_ytdlp(url)
+            return await extract_twitter_fallback(url)
         except Exception as e:
-            err_str = str(e).lower()
-            if "no video could be found" in err_str or "no video formats found" in err_str or "not a video" in err_str:
-                return await extract_twitter_fallback(url)
-            raise e
+            logger.warning(f"Twitter API extractor failed: {e}, falling back to yt-dlp...")
+            try:
+                return await _extract_ytdlp(url)
+            except Exception as e2:
+                err_str = str(e2).lower()
+                if "no video could be found" in err_str or "no video formats found" in err_str or "not a video" in err_str:
+                    return await extract_twitter_fallback(url)
+                raise e2
 
     return await _extract_ytdlp(url)
 
 async def extract_twitter_fallback(url: str):
-    # Parse tweet status ID and query VxTwitter API for media
+    # Parse tweet status ID and query VxTwitter / FxTwitter API for media (fast & works everywhere)
     m = re.search(r'status/(\d+)', url)
     if not m:
         raise ValueError("Invalid Twitter/X URL")
     tweet_id = m.group(1)
-    api_url = f"https://api.vxtwitter.com/twitter/status/{tweet_id}"
     
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    data = None
+
     async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.get(api_url) as resp:
-            if resp.status != 200:
-                raise ValueError(f"Twitter API returned {resp.status}")
-            data = await resp.json()
+        # Tier 1: VxTwitter API
+        try:
+            async with session.get(f"https://api.vxtwitter.com/status/{tweet_id}", timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    d = await resp.json()
+                    if d.get("mediaURLs") or d.get("media_extended"):
+                        data = d
+        except Exception:
+            pass
+
+        # Tier 2: FxTwitter API
+        if not data:
+            try:
+                async with session.get(f"https://api.fxtwitter.com/status/{tweet_id}", timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        fxd = await resp.json()
+                        t = fxd.get("tweet") or {}
+                        if t:
+                            media_dict = t.get("media") or {}
+                            media_list = media_dict.get("all") or (media_dict.get("photos", []) + media_dict.get("videos", []))
+                            m_ext = []
+                            for m_item in media_list:
+                                m_type = m_item.get("type")
+                                u = m_item.get("url")
+                                if m_type in ["video", "gif"]:
+                                    m_ext.append({"type": m_type, "url": u})
+                                elif m_type == "photo":
+                                    m_ext.append({"type": "image", "url": u})
+                            data = {
+                                "text": t.get("text"),
+                                "user_name": (t.get("author") or {}).get("name"),
+                                "media_extended": m_ext
+                            }
+            except Exception:
+                pass
+
+    if not data:
+        raise ValueError("No media found in tweet")
 
     text = data.get("text") or "Twitter / X Post"
-    media_urls = data.get("mediaURLs") or []
     media_ext = data.get("media_extended") or []
-
-    if not media_urls and not media_ext:
-        raise ValueError("No media found in tweet")
 
     # If it has images
     photos = []
