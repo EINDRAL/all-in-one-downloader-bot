@@ -16,6 +16,7 @@ import aiohttp
 import yarl
 import yt_dlp
 import syncedlyrics
+from proxy_manager import get_active_proxy_url
 from pathlib import Path
 from dotenv import load_dotenv
 from pyrogram import Client, filters, enums, idle
@@ -109,6 +110,9 @@ def get_ydl_common_opts() -> dict:
         # Larger TCP window for faster resume on unstable links
         'http_chunk_size': 1024 * 1024,
     }
+    proxy_url = get_active_proxy_url()
+    if proxy_url:
+        opts['proxy'] = proxy_url
     if COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
     js_rt = get_best_js_runtime()
@@ -4356,6 +4360,11 @@ async def register_bot_commands(client: Client):
         logger.warning(f"Could not register bot commands: {e}")
 
 def main():
+    proxy_url = get_active_proxy_url()
+    if proxy_url:
+        logger.info(f"Media proxy active: {proxy_url}")
+    else:
+        logger.info("Media proxy: Disabled (Direct connection)")
     logger.info("Bot is starting via Pyrogram (MTProto)...")
     async def _start_and_register():
         await app.start()
