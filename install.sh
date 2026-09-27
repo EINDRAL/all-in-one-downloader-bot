@@ -63,11 +63,57 @@ if [ ! -f ".env" ]; then
     echo ""
     read -rp "👉 Enter your Telegram Bot Token (from @BotFather): " USER_BOT_TOKEN
     read -rp "👉 Enter your Numeric Telegram Admin ID (e.g. 1429926943): " USER_ADMIN_ID
+    echo ""
+    echo -e "${BLUE}Outbound Proxy & V2Ray configuration:${NC}"
+    echo "  (Recommended if hosting in Russia, Iran, or behind a firewall restricting YouTube)"
+    echo "  Supports: vless://, vmess://, trojan://, ss://, socks5://, or http://"
+    echo "1) Direct connection (No proxy - Default for European/US servers)"
+    echo "2) Configure Proxy / V2Ray link"
+    read -rp "Select option [1-2, default: 1]: " PROXY_CHOICE
+
+    USER_PROXY=""
+    if [ "$PROXY_CHOICE" = "2" ]; then
+        read -rp "👉 Paste your Proxy or V2Ray link: " USER_PROXY
+        USER_PROXY=$(echo "$USER_PROXY" | xargs)
+        
+        # Check if it's a V2Ray link requiring Xray binary
+        case "$USER_PROXY" in
+            vless://*|vmess://*|trojan://*|ss://*)
+                if ! command -v xray >/dev/null 2>&1 && [ ! -f "$HOME/.local/bin/xray" ] && [ ! -f "$SCRIPT_DIR/bin/xray" ]; then
+                    echo -e "${YELLOW}Notice: Xray binary not detected. Downloading portable Xray Core...${NC}"
+                    mkdir -p "$SCRIPT_DIR/bin"
+                    "$VENV_PY" -c "
+import urllib.request, zipfile, io, os
+url = 'https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip'
+req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+try:
+    with urllib.request.urlopen(req) as resp:
+        with zipfile.ZipFile(io.BytesIO(resp.read())) as z:
+            z.extract('xray', '$SCRIPT_DIR/bin')
+            os.chmod('$SCRIPT_DIR/bin/xray', 0o755)
+            print('✓ Xray Core installed successfully.')
+except Exception as e:
+    print(f'Warning: Could not auto-download Xray: {e}')
+" || true
+                fi
+                ;;
+        esac
+
+        if [ -n "$USER_PROXY" ]; then
+            echo -e "${YELLOW}Verifying proxy connectivity...${NC}"
+            if "$VENV_PY" proxy_manager.py "$USER_PROXY" >/dev/null 2>&1; then
+                echo -e "${GREEN}✓ Proxy verified successfully!${NC}"
+            else
+                echo -e "${YELLOW}Notice: Proxy could not be verified right now. It will still be saved to .env.${NC}"
+            fi
+        fi
+    fi
 
     cat <<EOF > .env
 BOT_TOKEN=${USER_BOT_TOKEN}
 ADMIN_ID=${USER_ADMIN_ID}
 DOWNLOAD_DIR=downloads
+$( [ -n "$USER_PROXY" ] && echo "PROXY=${USER_PROXY}" || echo "# PROXY=" )
 EOF
     echo -e "${GREEN}✓ .env created successfully!${NC}"
 else
