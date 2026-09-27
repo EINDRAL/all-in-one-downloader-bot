@@ -65,18 +65,13 @@ if [ ! -f ".env" ]; then
     read -rp "👉 Enter your Telegram Bot Token (from @BotFather): " USER_BOT_TOKEN
     read -rp "👉 Enter your Numeric Telegram Admin ID (e.g. 1429926943): " USER_ADMIN_ID
     echo ""
-    echo -e "${BLUE}Outbound Proxy & V2Ray configuration:${NC}"
-    echo "  (Recommended if hosting in Russia, Iran, or behind a firewall restricting YouTube)"
+    echo -e "${BLUE}Outbound Proxy & V2Ray configuration (Optional):${NC}"
     echo "  Supports: vless://, vmess://, trojan://, ss://, socks5://, or http://"
-    echo "1) Direct connection (No proxy - Default for European/US servers)"
-    echo "2) Configure Proxy / V2Ray link"
-    read -rp "Select option [1-2, default: 1]: " PROXY_CHOICE
+    echo "  (Recommended if hosting in Russia, Iran, or behind a firewall restricting YouTube)"
+    read -rp "👉 Paste Proxy / V2Ray link (Press Enter to skip for direct connection): " USER_PROXY
+    USER_PROXY=$(echo "$USER_PROXY" | tr -d '\r\n' | xargs)
 
-    USER_PROXY=""
-    if [ "$PROXY_CHOICE" = "2" ]; then
-        read -rp "👉 Paste your Proxy or V2Ray link: " USER_PROXY
-        USER_PROXY=$(echo "$USER_PROXY" | xargs)
-        
+    if [ -n "$USER_PROXY" ]; then
         # Check if it's a V2Ray link requiring Xray binary
         case "$USER_PROXY" in
             vless://*|vmess://*|trojan://*|ss://*)
@@ -100,13 +95,11 @@ except Exception as e:
                 ;;
         esac
 
-        if [ -n "$USER_PROXY" ]; then
-            echo -e "${YELLOW}Verifying proxy connectivity...${NC}"
-            if "$VENV_PY" proxy_manager.py "$USER_PROXY" >/dev/null 2>&1; then
-                echo -e "${GREEN}✓ Proxy verified successfully!${NC}"
-            else
-                echo -e "${YELLOW}Notice: Proxy could not be verified right now. It will still be saved to .env.${NC}"
-            fi
+        echo -e "${YELLOW}Verifying proxy connectivity...${NC}"
+        if "$VENV_PY" proxy_manager.py "$USER_PROXY" >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ Proxy verified successfully!${NC}"
+        else
+            echo -e "${YELLOW}Notice: Proxy could not be verified right now. It will still be saved to .env.${NC}"
         fi
     fi
 
