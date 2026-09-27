@@ -126,6 +126,7 @@ echo "1) Run in foreground now (Interactive logs)"
 echo "2) Run in background (nohup / daemon)"
 echo "3) Exit setup"
 read -rp "Select option [1-3]: " LAUNCH_CHOICE
+LAUNCH_CHOICE=$(echo "$LAUNCH_CHOICE" | tr -d '[:space:]')
 
 case "$LAUNCH_CHOICE" in
     1)
