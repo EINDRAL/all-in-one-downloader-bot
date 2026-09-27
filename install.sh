@@ -53,7 +53,8 @@ VENV_PY="$SCRIPT_DIR/venv/bin/python"
 # 3. Install Dependencies
 echo -e "${BLUE}[3/5] Installing dependencies from requirements.txt...${NC}"
 "$VENV_PY" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
-"$VENV_PY" -m pip install -r requirements.txt
+# Use --prefer-binary to avoid OOM killer when building heavy C++ wheels (e.g. rapidfuzz) on limited shared hosting
+"$VENV_PY" -m pip install --prefer-binary -r requirements.txt
 echo -e "${GREEN}✓ All dependencies installed successfully.${NC}"
 
 # 4. Interactive Configuration (.env)
