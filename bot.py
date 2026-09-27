@@ -1327,7 +1327,11 @@ async def extract_info(url: str):
         raise ValueError("IG_STORY_LOGIN_REQUIRED")
 
     if is_tiktok(url):
-        return await extract_tiktok(url)
+        try:
+            return await extract_tiktok(url)
+        except Exception as e:
+            logger.warning(f"TikTok TikWM API failed: {e}, falling back to yt-dlp...")
+            return await _extract_ytdlp(url)
 
     if is_spotify_album(url):
         return await extract_spotify_album(url)
@@ -1342,32 +1346,28 @@ async def extract_info(url: str):
         try:
             return await _extract_ytdlp(url)
         except Exception as e:
-            err_str = str(e).lower()
-            if "no video formats found" in err_str or "unsupported" in err_str or "error" in err_str:
+            logger.warning(f"yt-dlp failed for Pinterest: {e}, attempting image fallback...")
+            try:
                 return await extract_pinterest_image(url)
-            raise e
+            except Exception:
+                raise e
 
     if is_instagram(url):
         try:
             return await _extract_ytdlp(url)
         except Exception as e:
-            err_str = str(e).lower()
-            if "no video formats found" in err_str or "no video in this post" in err_str:
+            logger.warning(f"yt-dlp failed for Instagram: {e}, attempting photo/carousel fallback...")
+            try:
                 return await extract_instagram_photo_fallback(url)
-            raise e
+            except Exception:
+                raise e
 
     if is_twitter(url):
         try:
             return await extract_twitter_fallback(url)
         except Exception as e:
             logger.warning(f"Twitter API extractor failed: {e}, falling back to yt-dlp...")
-            try:
-                return await _extract_ytdlp(url)
-            except Exception as e2:
-                err_str = str(e2).lower()
-                if "no video could be found" in err_str or "no video formats found" in err_str or "not a video" in err_str:
-                    return await extract_twitter_fallback(url)
-                raise e2
+            return await _extract_ytdlp(url)
 
     return await _extract_ytdlp(url)
 
