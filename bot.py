@@ -99,7 +99,7 @@ def get_best_js_runtime() -> dict:
         return {'node': {'path': best_node}}
     return {}
 
-def get_ydl_common_opts() -> dict:
+def get_ydl_common_opts(use_proxy: bool = True) -> dict:
     """Returns common yt-dlp options: cookies file, best detected JS runtime & resilient network settings."""
     opts = {
         # Higher tolerance for slow/throttled CDNs (default 20s is too aggressive on shared hosting)
@@ -110,9 +110,10 @@ def get_ydl_common_opts() -> dict:
         # Larger TCP window for faster resume on unstable links
         'http_chunk_size': 1024 * 1024,
     }
-    proxy_url = get_active_proxy_url()
-    if proxy_url:
-        opts['proxy'] = proxy_url
+    if use_proxy:
+        proxy_url = get_active_proxy_url()
+        if proxy_url:
+            opts['proxy'] = proxy_url
     if COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
     js_rt = get_best_js_runtime()
@@ -696,17 +697,17 @@ def is_soundcloud_album(url: str) -> bool:
     return is_soundcloud(u) and ("/sets/" in u)
 
 def is_instagram(url: str) -> bool:
-    return any(domain in url.lower() for domain in ["instagram.com", "ddinstagram.com"])
+    return any(domain in url.lower() for domain in ["instagram.com", "ddinstagram.com", "instagr.am"])
 
 def is_instagram_story(url: str) -> bool:
-    return "instagram.com/stories/" in url.lower()
+    return "instagram.com/stories/" in url.lower() or "instagr.am/stories/" in url.lower()
 
 def is_twitter(url: str) -> bool:
     return any(d in url.lower() for d in ["twitter.com", "x.com", "fxtwitter.com", "vxtwitter.com"])
 
 def is_direct_clip(url: str) -> bool:
     return any(domain in url.lower() for domain in [
-        "instagram.com", "ddinstagram.com",
+        "instagram.com", "ddinstagram.com", "instagr.am",
         "tiktok.com", "douyin.com",
         "twitter.com", "x.com", "fxtwitter.com", "vxtwitter.com",
         "reddit.com", "redd.it"
@@ -1283,16 +1284,25 @@ async def extract_instagram_photo_fallback(url: str):
         except Exception:
             pass
 
-        og_match = re.search(r'<meta\s+property=[\"\']og:image[\"\']\s+content=[\"\']([^\"\']+)[\"\']', page)
+        og_match = (
+            re.search(r'<meta[^>]+property=[\"\']og:image[\"\'][^>]+content=[\"\']([^\"\']+)[\"\']', page) or
+            re.search(r'<meta[^>]+content=[\"\']([^\"\']+)[\"\'][^>]+property=[\"\']og:image[\"\']', page)
+        )
         m_img_url = html.unescape(og_match.group(1)) if og_match else None
 
         if not m_img_url:
             raise ValueError("No media found in Instagram post")
 
-        m_title = re.search(r'<meta\s+property=[\"\']og:title[\"\']\s+content=[\"\']([^\"\']+)[\"\']', page)
+        m_title = (
+            re.search(r'<meta[^>]+property=[\"\']og:title[\"\'][^>]+content=[\"\']([^\"\']+)[\"\']', page) or
+            re.search(r'<meta[^>]+content=[\"\']([^\"\']+)[\"\'][^>]+property=[\"\']og:title[\"\']', page)
+        )
         raw_title = html.unescape(m_title.group(1)) if m_title else "Instagram Post"
 
-        m_desc = re.search(r'<meta\s+property=[\"\']og:description[\"\']\s+content=[\"\']([^\"\']+)[\"\']', page)
+        m_desc = (
+            re.search(r'<meta[^>]+property=[\"\']og:description[\"\'][^>]+content=[\"\']([^\"\']+)[\"\']', page) or
+            re.search(r'<meta[^>]+content=[\"\']([^\"\']+)[\"\'][^>]+property=[\"\']og:description[\"\']', page)
+        )
         uploader = "Instagram"
         if m_desc:
             desc_text = html.unescape(m_desc.group(1))
@@ -1314,6 +1324,8 @@ async def extract_instagram_photo_fallback(url: str):
         }
 
 async def resolve_redirect_url(url: str) -> str:
+    # Normalize dead mirror domains to official Instagram URL
+    url = re.sub(r'https?://(?:www\.)?(?:ddinstagram\.com|instagr\.am)/', 'https://www.instagram.com/', url, flags=re.IGNORECASE)
     # Resolve shortened / redirect links like spotify.link, bit.ly, etc.
     if any(sh in url.lower() for sh in ["spotify.link", "pin.it", "vt.tiktok.com", "vm.tiktok.com", "on.soundcloud.com"]):
         try:
@@ -1480,22 +1492,42 @@ async def extract_twitter_fallback(url: str):
     raise ValueError("No downloadable media found in tweet")
 
 async def _extract_ytdlp(url: str):
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': False,
-        'noplaylist': True,
-    }
-    ydl_opts.update(get_ydl_common_opts())
-
     loop = asyncio.get_running_loop()
-    def _extract():
+    has_proxy = bool(get_active_proxy_url())
+
+    # For Instagram, direct connection avoids anti-bot/CSRF blocks on datacenter proxies.
+    # For YouTube and other platforms, use proxy first when configured.
+    prefer_direct = is_instagram(url)
+
+    def _do_extract(with_proxy: bool):
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'noplaylist': True,
+        }
+        ydl_opts.update(get_ydl_common_opts(use_proxy=with_proxy))
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             res = ydl.extract_info(url, download=False)
             res["source"] = "ytdlp"
             res["media_type"] = "video"
+            res["_use_proxy"] = with_proxy
             return res
-    return await loop.run_in_executor(None, _extract)
+
+    first_proxy_mode = (not prefer_direct) if has_proxy else False
+    try:
+        return await loop.run_in_executor(None, _do_extract, first_proxy_mode)
+    except Exception as e:
+        # If an alternative connection mode exists (proxy vs direct), retry with the other!
+        if has_proxy:
+            alt_proxy_mode = not first_proxy_mode
+            alt_label = "proxy" if alt_proxy_mode else "direct"
+            logger.warning(f"yt-dlp extraction failed for {url} ({e}). Retrying with {alt_label} connection...")
+            try:
+                return await loop.run_in_executor(None, _do_extract, alt_proxy_mode)
+            except Exception:
+                raise e
+        raise e
 
 # ----------------- Downloaders -----------------
 
@@ -1785,9 +1817,12 @@ async def _download_media_internal(url: str, quality_req: str, cached_data: dict
                 'noplaylist': True,
             }
 
-    if COOKIES_FILE.exists():
-        ydl_opts['cookiefile'] = str(COOKIES_FILE)
-    ydl_opts.update(get_ydl_common_opts())
+    dl_has_proxy = bool(get_active_proxy_url())
+    cached_proxy_pref = info.get("_use_proxy")
+    if cached_proxy_pref is not None and dl_has_proxy:
+        first_dl_proxy = cached_proxy_pref
+    else:
+        first_dl_proxy = (not is_instagram(url)) if dl_has_proxy else False
 
     loop = asyncio.get_running_loop()
 
@@ -1813,13 +1848,20 @@ async def _download_media_internal(url: str, quality_req: str, cached_data: dict
             bar_str = make_progress_bar(100.0)
             asyncio.run_coroutine_threadsafe(progress_callback(bar_str, 100.0), loop)
 
-    if progress_callback or cancel_token:
-        ydl_opts['progress_hooks'] = [_ytdl_hook]
+    def _build_ydl_opts(with_proxy: bool):
+        base_opts = dict(ydl_opts)
+        if COOKIES_FILE.exists():
+            base_opts['cookiefile'] = str(COOKIES_FILE)
+        base_opts.update(get_ydl_common_opts(use_proxy=with_proxy))
+        if progress_callback or cancel_token:
+            base_opts['progress_hooks'] = [_ytdl_hook]
+        return base_opts
 
-    def _download():
+    def _download(with_proxy: bool):
         if cancel_token and cancel_token.is_set():
             raise yt_dlp.utils.DownloadCancelled("Download cancelled via /stop")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        current_opts = _build_ydl_opts(with_proxy)
+        with yt_dlp.YoutubeDL(current_opts) as ydl:
             info_res = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info_res)
             if is_audio:
@@ -1829,11 +1871,24 @@ async def _download_media_internal(url: str, quality_req: str, cached_data: dict
                 if os.path.exists(base + ".mp4"):
                     filename = base + ".mp4"
             return filename, info_res
-            
+
     try:
-        filename, info_res = await loop.run_in_executor(None, _download)
+        filename, info_res = await loop.run_in_executor(None, _download, first_dl_proxy)
     except yt_dlp.utils.DownloadCancelled:
         raise asyncio.CancelledError("Download aborted via /stop")
+    except Exception as e:
+        if dl_has_proxy:
+            alt_dl_proxy = not first_dl_proxy
+            alt_label = "proxy" if alt_dl_proxy else "direct"
+            logger.warning(f"yt-dlp download failed ({e}). Retrying with {alt_label} connection...")
+            try:
+                filename, info_res = await loop.run_in_executor(None, _download, alt_dl_proxy)
+            except yt_dlp.utils.DownloadCancelled:
+                raise asyncio.CancelledError("Download aborted via /stop")
+            except Exception:
+                raise e
+        else:
+            raise e
 
     # If audio download, download cover art image if available
     cover_file = None
